@@ -46,6 +46,7 @@ import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.incrementer.DataFieldMaxValueIncrementer;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -72,8 +73,8 @@ public class JdbcTaskExecutionDao implements TaskExecutionDao {
 	public static final String TASK_NAME_WHERE_CLAUSE = "where TASK_NAME = ? ";
 
 	private static final String SAVE_TASK_EXECUTION = "INSERT into %PREFIX%EXECUTION"
-			+ "(TASK_EXECUTION_ID, START_TIME, TASK_NAME, LAST_UPDATED, EXTERNAL_EXECUTION_ID, PARENT_EXECUTION_ID)"
-			+ "values (?, ?, ?, ?, ?, ?)";
+			+ "(TASK_EXECUTION_ID, START_TIME, TASK_NAME, LAST_UPDATED, EXTERNAL_EXECUTION_ID, PARENT_EXECUTION_ID, CREATOR)"
+			+ "values (?, ?, ?, ?, ?, ?, ?)";
 
 	private static final String CREATE_TASK_ARGUMENT = "INSERT into "
 			+ "%PREFIX%EXECUTION_PARAMS(TASK_EXECUTION_ID, TASK_PARAM ) values (?, ?)";
@@ -170,14 +171,16 @@ public class JdbcTaskExecutionDao implements TaskExecutionDao {
 		TaskExecution taskExecution = new TaskExecution(nextExecutionId, null, taskName,
 				startTime, null, null, arguments, null, externalExecutionId);
 
-		Object[] queryParameters = new Object[]{ nextExecutionId, startTime,
+		String creator = SecurityContextHolder.getContext().getAuthentication().getName();
+        Object[] queryParameters = new Object[]{ nextExecutionId, startTime,
 				taskName, new Date(), externalExecutionId,
-				parentExecutionId};
+				parentExecutionId,
+                creator};
 		jdbcTemplate.update(
 				getQuery(SAVE_TASK_EXECUTION),
 				queryParameters,
 				new int[]{ Types.BIGINT, Types.TIMESTAMP, Types.VARCHAR,
-						Types.TIMESTAMP, Types.VARCHAR, Types.BIGINT});
+						Types.TIMESTAMP, Types.VARCHAR, Types.BIGINT, Types.VARCHAR});
 		insertTaskArguments(nextExecutionId, arguments);
 		return taskExecution;
 	}
@@ -323,8 +326,15 @@ public class JdbcTaskExecutionDao implements TaskExecutionDao {
 
 	@Override
 	public Page<TaskExecution> findAll(Pageable pageable) {
-		return queryForPageableResults(pageable, SELECT_CLAUSE, FROM_CLAUSE, null,
-				new Object[]{  }, getTaskExecutionCount());
+	    String creator = SecurityContextHolder.getContext().getAuthentication().getName();
+	    if (creator != null) {
+            StringBuilder whereClause = new StringBuilder("WHERE creator = ?");
+            return queryForPageableResults(pageable, SELECT_CLAUSE, FROM_CLAUSE, whereClause.toString(),
+                    new Object[]{ creator }, getTaskExecutionCount());
+        } else {
+            return queryForPageableResults(pageable, SELECT_CLAUSE, FROM_CLAUSE, null,
+                    new Object[]{ }, getTaskExecutionCount());
+        }
 	}
 
 	public void setTaskIncrementer(DataFieldMaxValueIncrementer taskIncrementer) {
